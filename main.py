@@ -12,4 +12,3 @@ from sklearn.manifold import TSNE
 from sklearn.neighbors import KNeighborsClassifier
 from ipywidgets import interact, IntSlider, Button, HBox, VBox
 
-x
