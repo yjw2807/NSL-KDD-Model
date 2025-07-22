@@ -1,4 +1,6 @@
 #Everyone write a comment to make sure can access edit this thing
+#YJWee
+
 
 import numpy as np
 import matplotlib.pyplot as plt
