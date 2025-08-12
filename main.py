@@ -2,6 +2,8 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import io
+import pandas as pd
 from sklearn import datasets
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
@@ -31,3 +33,43 @@ dataset = pd.read_csv(url, names=feature_names)
 
 print("Dataset shape:", dataset.shape)
 print(dataset.head())
+
+x = dataset.iloc[:, :-1].values
+#[:,:-1]
+#[all;:all until -1 ()before]
+# importing an array of dependent variable
+#x: All data except last column
+y = dataset.iloc[:, -1].values
+#y:only last column
+#[all;-1]
+
+#x is independent var, y is dependent var
+print('-----')
+print(x)
+print('-----')
+print(y)
+
+#Missing Data
+from sklearn.impute import SimpleImputer
+
+# Example: select numeric columns only
+numeric_cols = [col for col in dataset.columns if dataset[col].dtype != 'object']
+
+imputa = SimpleImputer(missing_values=np.nan, strategy='mean')
+dataset[numeric_cols] = imputa.fit_transform(dataset[numeric_cols])
+print(x)
+
+#encoding Categorical Value
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+
+# Assuming columns with index 1, 2, and 3 are categorical based on previous printouts of x
+categorical_features = [1, 2, 3]
+
+ct = ColumnTransformer(transformers=[('encoder', OneHotEncoder(), categorical_features)], remainder= 'passthrough')
+x = np.array(ct.fit_transform(x))
+
+print(x)
+
+x = np.delete(x, 0, 1)
+print(x)
