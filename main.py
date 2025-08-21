@@ -15,7 +15,7 @@ from ipywidgets import interact, IntSlider, Button, HBox, VBox
 np.random.seed(42)
 
 #Data Loading
-url = "https://raw.githubusercontent.com/defcom17/NSL_KDD/master/KDDTrain+.txt"
+url = "https://raw.githubusercontent.com/yjw2807/NSL-KDD-Model/main/KDDTrain+.txt"
 
 #Load Feature Names
 feature_names = [
