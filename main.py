@@ -185,7 +185,7 @@ per_p, per_r, per_f1, per_support = precision_recall_fscore_support(
 mcc   = matthews_corrcoef(y_true, y_pred)
 kappa = cohen_kappa_score(y_true, y_pred)
 
-# --- Stable log loss (fixes your error) ---
+# --- Stable log loss ---
 eps = 1e-12
 y_proba_safe = np.clip(y_proba, eps, 1 - eps)
 y_proba_safe = (y_proba_safe.T / y_proba_safe.sum(axis=1)).T  # re-normalize rows
@@ -250,7 +250,7 @@ summary.to_csv(os.path.join(OUTDIR, "summary_metrics.csv"), index=False)
 per_class_tbl.to_csv(os.path.join(OUTDIR, "per_class_metrics.csv"), index=False)
 
 # ===== Plots =====
-
+#--- Confusion matrix------------
 # 1) Confusion matrix (normalized by true class)
 cm = confusion_matrix(y_true, y_pred, labels=np.arange(num_classes))
 cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
