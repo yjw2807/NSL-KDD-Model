@@ -382,3 +382,7 @@ print(f"c (model right, baseline wrong) = {c}")
 print(f"n = b + c                        = {n}")
 print(f"Two-sided exact p-value          = {pval:.6f}")
 
+
+print("=Model_params=")
+ model.count_params()
+
