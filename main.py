@@ -135,6 +135,171 @@ print(f"Saved cleaned previews to: {OUTPUT_DIR}/cleaned_train_preview.csv and cl
 
 
 #------------MODEL TRAINING-------------------
+import os, random, numpy as np, pandas as pd, warnings
+warnings.filterwarnings("ignore")
+
+# Reproducibility
+os.environ["PYTHONHASHSEED"] = "1"
+random.seed(1)
+np.random.seed(1)
+
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import classification_report
+
+import tensorflow as tf
+tf.random.set_seed(1)
+from tensorflow import keras
+from tensorflow.keras import layers
+
+# ---------- 1) Map raw labels to 5 superclasses (FIXED: add 'mailbomb' -> DoS) ----------
+DOS = {
+    'back','land','neptune','pod','smurf','teardrop',
+    'apache2','udpstorm','processtable','worm','mailbomb'  # <-- added
+}
+PROBE = {
+    'satan','ipsweep','nmap','portsweep','mscan','saint'
+}
+R2L = {
+    'guess_passwd','ftp_write','imap','phf','multihop','warezmaster','warezclient','spy',
+    'xlock','xsnoop','snmpguess','snmpgetattack','httptunnel','sendmail','named'
+}
+U2R = {
+    'buffer_overflow','loadmodule','rootkit','perl','sqlattack','xterm','ps'
+}
+
+def to_5class(label: str) -> str:
+    lbl = label.strip().lower()
+    if lbl == 'normal': return 'Normal'
+    if lbl in DOS:      return 'DoS'
+    if lbl in PROBE:    return 'Probe'
+    if lbl in R2L:      return 'R2L'
+    if lbl in U2R:      return 'U2R'
+    return f'__UNKNOWN__:{label}'
+
+y_train_5 = y_train.apply(to_5class)
+y_test_5  = y_test.apply(to_5class)
+
+unk_train = [u for u in y_train_5.unique() if u.startswith('__UNKNOWN__')]
+unk_test  = [u for u in y_test_5.unique()  if u.startswith('__UNKNOWN__')]
+print("5-class distribution (train):"); print(y_train_5.value_counts())
+print("\n5-class distribution (test):"); print(y_test_5.value_counts())
+assert not unk_train and not unk_test, f"Unknown labels remain: train={unk_train}, test={unk_test}. Add them to DOS/PROBE/R2L/U2R."
+
+# ---------- 2) Rebuild features with FULL one-hot (no drop) ----------
+def make_ohe_full():
+    try:
+        return OneHotEncoder(handle_unknown='ignore', drop=None, sparse_output=False)
+    except TypeError:
+        return OneHotEncoder(handle_unknown='ignore', drop=None, sparse=False)
+
+preprocess_full = ColumnTransformer(
+    transformers=[
+        ('cat', make_ohe_full(), cat_cols),
+        ('num', Pipeline([
+            ('impute',  __import__('sklearn.impute').impute.SimpleImputer(strategy='mean')),
+            ('scale',   StandardScaler())
+        ]), num_cols),
+    ],
+    remainder='drop'
+)
+
+X_train_full = preprocess_full.fit_transform(X_train_df)
+X_test_full  = preprocess_full.transform(X_test_df)
+if hasattr(X_train_full, "toarray"):
+    X_train_full = X_train_full.toarray()
+    X_test_full  = X_test_full.toarray()
+
+print("\nFeature dims:", X_train_full.shape, "->", X_test_full.shape)
+
+# ---------- 3) Encode labels to ints / one-hot ----------
+le = LabelEncoder()
+y_train_int = le.fit_transform(y_train_5)
+y_test_int  = le.transform(y_test_5)
+num_classes = len(le.classes_)
+y_train_oh = keras.utils.to_categorical(y_train_int, num_classes=num_classes)
+y_test_oh  = keras.utils.to_categorical(y_test_int,  num_classes=num_classes)
+print("Classes:", list(le.classes_))
+
+# ---------- 4) Stratified validation split ----------
+X_tr, X_val, y_tr_int, y_val_int = train_test_split(
+    X_train_full, y_train_int, test_size=0.15, stratify=y_train_int, random_state=1
+)
+y_tr_oh  = keras.utils.to_categorical(y_tr_int,  num_classes)
+y_val_oh = keras.utils.to_categorical(y_val_int, num_classes)
+
+# ---------- 5) Class weights ----------
+classes = np.unique(y_tr_int)
+class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=y_tr_int)
+class_weight_dict = {int(c): float(w) for c, w in zip(classes, class_weights)}
+print("Class weights:", class_weight_dict)
+
+# ---------- 6) Deep MLP (BN+Dropout), tuned for NSL-KDD tabular ----------
+inp_dim = X_tr.shape[1]
+
+def build_mlp(input_dim, num_classes):
+    inputs = keras.Input(shape=(input_dim,), name="features")
+
+    x = layers.Dense(1024, kernel_initializer="he_normal")(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.Dropout(0.5)(x)
+
+    x = layers.Dense(512, kernel_initializer="he_normal")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.Dropout(0.4)(x)
+
+    x = layers.Dense(256, kernel_initializer="he_normal")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.Dropout(0.35)(x)
+
+    x = layers.Dense(128, kernel_initializer="he_normal")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.Dropout(0.30)(x)
+
+    outputs = layers.Dense(num_classes, activation="softmax")(x)
+    model = keras.Model(inputs, outputs, name="DeepMLP_NSLKDD_5Class")
+    opt = keras.optimizers.Adam(learning_rate=1e-3)
+    model.compile(optimizer=opt, loss="categorical_crossentropy", metrics=["accuracy"])
+    return model
+
+model = build_mlp(inp_dim, num_classes)
+model.summary()
+
+# ---------- 7) Callbacks ----------
+early = keras.callbacks.EarlyStopping(
+    monitor="val_accuracy", patience=12, restore_best_weights=True, verbose=1
+)
+plateau = keras.callbacks.ReduceLROnPlateau(
+    monitor="val_accuracy", factor=0.5, patience=6, min_lr=1e-5, verbose=1
+)
+
+# ---------- 8) Train ----------
+history = model.fit(
+    X_tr, keras.utils.to_categorical(y_tr_int, num_classes),
+    validation_data=(X_val, keras.utils.to_categorical(y_val_int, num_classes)),
+    epochs=80, batch_size=512, verbose=1,
+    class_weight=class_weight_dict,
+    callbacks=[early, plateau]
+)
+
+# ---------- 9) Evaluate on official KDDTest+ ----------
+test_loss, test_acc = model.evaluate(X_test_full, y_test_oh, verbose=0)
+print(f"\n=== TEST RESULTS (KDDTest+; 5-class) ===")
+print(f"Accuracy: {test_acc*100:.2f}%")
+
+y_pred = np.argmax(model.predict(X_test_full, verbose=0), axis=1)
+print("\nClassification Report:")
+print(classification_report(le.inverse_transform(y_test_int),
+                            le.inverse_transform(y_pred),
+                            digits=3, zero_division=0))
 
 
 
