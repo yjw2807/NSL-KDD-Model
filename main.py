@@ -73,3 +73,9 @@ print(x)
 
 x = np.delete(x, 0, 1)
 print(x)
+
+#------------MODEL TRAINING-------------------
+
+
+
+#---------------- Evaluation Metrics-----------------
