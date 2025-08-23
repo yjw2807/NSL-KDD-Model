@@ -133,36 +133,275 @@ clean_train_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_train_preview
 clean_test_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_test_preview.csv"), index=False)
 print(f"Saved cleaned previews to: {OUTPUT_DIR}/cleaned_train_preview.csv and cleaned_test_preview.csv")
 
-# ----------------------------
-# 6) Train a simple baseline model
-# ----------------------------
-#print("\n>>> Training LogisticRegression (multinomial, saga) ...")
-#clf = LogisticRegression(
-#    multi_class='multinomial',
-#    solver='saga',
-#    penalty='l2',
-#    C=1.0,
-#    max_iter=300,
-#    n_jobs=-1
-#)
-#clf.fit(X_train, y_train)
-
-# ----------------------------
-# 7) Evaluate on official test set (KDDTest+)
-# ----------------------------
-#print("\n=== EVALUATION ON OFFICIAL TEST SET (KDDTest+) ===")
-#y_pred = clf.predict(X_test)
-#print(classification_report(y_test, y_pred, digits=3, zero_division=0))
-
-#cm = confusion_matrix(y_test, y_pred, labels=np.unique(y_test))
-#cm_df = pd.DataFrame(cm, index=np.unique(y_test), columns=np.unique(y_test))
-#cm_path = os.path.join(OUTPUT_DIR, "confusion_matrix.csv")
-#cm_df.to_csv(cm_path)
-#print(f"Confusion matrix saved to: {cm_path}")
-#print("Done.")
 
 #------------MODEL TRAINING-------------------
 
 
 
 #---------------- Evaluation Metrics-----------------
+import os, time, numpy as np, pandas as pd, warnings
+import matplotlib.pyplot as plt
+import numpy as np, math
+
+
+from sklearn.metrics import (
+    accuracy_score, precision_recall_fscore_support, classification_report,
+    confusion_matrix, roc_auc_score, average_precision_score,
+    balanced_accuracy_score, matthews_corrcoef, cohen_kappa_score,
+    roc_curve, precision_recall_curve, log_loss
+)
+from scipy.stats import binomtest
+
+# ---- Safety check ----
+needed = ["model","preprocess_full","le","X_test_df","y_test_5","X_test_full","y_test_int","y_test_oh","y_train_5"]
+missing = [v for v in needed if v not in globals()]
+if missing:
+    raise RuntimeError(f"Missing variables from previous cells: {missing}")
+
+OUTDIR = "./eval_outputs"
+os.makedirs(OUTDIR, exist_ok=True)
+
+# ===== Predictions =====
+y_proba = model.predict(X_test_full, verbose=0)      # shape: [N, C]
+y_pred  = np.argmax(y_proba, axis=1)                 # int labels
+y_true  = y_test_int                                 # int labels aligned with `le`
+class_names = list(le.classes_)                      # e.g. ['DoS','Normal','Probe','R2L','U2R']
+num_classes = len(class_names)
+
+# ===== Metrics (multi-class) =====
+acc  = accuracy_score(y_true, y_pred)
+bal_acc = balanced_accuracy_score(y_true, y_pred)
+
+macro_p, macro_r, macro_f1, _ = precision_recall_fscore_support(
+    y_true, y_pred, average='macro', zero_division=0
+)
+micro_p, micro_r, micro_f1, _ = precision_recall_fscore_support(
+    y_true, y_pred, average='micro', zero_division=0
+)
+per_p, per_r, per_f1, per_support = precision_recall_fscore_support(
+    y_true, y_pred, average=None, labels=np.arange(num_classes), zero_division=0
+)
+
+mcc   = matthews_corrcoef(y_true, y_pred)
+kappa = cohen_kappa_score(y_true, y_pred)
+
+# --- Stable log loss (fixes your error) ---
+eps = 1e-12
+y_proba_safe = np.clip(y_proba, eps, 1 - eps)
+y_proba_safe = (y_proba_safe.T / y_proba_safe.sum(axis=1)).T  # re-normalize rows
+if y_test_oh.ndim == 2:
+    # If we already have one-hot true labels, do NOT pass `labels=` (prevents the error)
+    lloss = log_loss(y_test_oh, y_proba_safe)
+else:
+    # If you only had int labels, you'd use this:
+    lloss = log_loss(y_true, y_proba_safe, labels=np.arange(num_classes))
+
+# Multi-class ROC/PR AUC (OvR)
+try:
+    roc_auc_macro = roc_auc_score(y_test_oh, y_proba_safe, multi_class='ovr', average='macro')
+    roc_auc_micro = roc_auc_score(y_test_oh, y_proba_safe, multi_class='ovr', average='micro')
+except Exception:
+    roc_auc_macro = np.nan
+    roc_auc_micro = np.nan
+
+try:
+    pr_auc_macro  = average_precision_score(y_test_oh, y_proba_safe, average='macro')
+    pr_auc_micro  = average_precision_score(y_test_oh, y_proba_safe, average='micro')
+except Exception:
+    pr_auc_macro = np.nan
+    pr_auc_micro = np.nan
+
+# ===== Print tables =====
+print("=== Classification Report (per-class) ===")
+print(classification_report(le.inverse_transform(y_true),
+                            le.inverse_transform(y_pred),
+                            digits=3, zero_division=0))
+
+summary = pd.DataFrame({
+    "metric": [
+        "accuracy", "balanced_accuracy",
+        "macro_precision", "macro_recall", "macro_f1",
+        "micro_precision", "micro_recall", "micro_f1",
+        "mcc", "cohen_kappa",
+        "log_loss", "roc_auc_macro", "roc_auc_micro", "pr_auc_macro", "pr_auc_micro"
+    ],
+    "value": [
+        acc, bal_acc,
+        macro_p, macro_r, macro_f1,
+        micro_p, micro_r, micro_f1,
+        mcc, kappa,
+        lloss, roc_auc_macro, roc_auc_micro, pr_auc_macro, pr_auc_micro
+    ]
+})
+print("\n=== Summary metrics (multi-class) ===")
+print(summary)
+
+per_class_tbl = pd.DataFrame({
+    "class": class_names,
+    "precision": per_p,
+    "recall": per_r,
+    "f1": per_f1,
+    "support": per_support
+})
+print("\n=== Per-class metrics ===")
+print(per_class_tbl)
+
+summary.to_csv(os.path.join(OUTDIR, "summary_metrics.csv"), index=False)
+per_class_tbl.to_csv(os.path.join(OUTDIR, "per_class_metrics.csv"), index=False)
+
+# ===== Plots =====
+
+# 1) Confusion matrix (normalized by true class)
+cm = confusion_matrix(y_true, y_pred, labels=np.arange(num_classes))
+cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
+fig = plt.figure(figsize=(6,5))
+plt.imshow(cm_norm, interpolation='nearest')
+plt.title("Confusion Matrix (Normalized)")
+plt.colorbar()
+ticks = np.arange(num_classes)
+plt.xticks(ticks, class_names, rotation=45, ha='right')
+plt.yticks(ticks, class_names)
+thr = cm_norm.max() / 2
+for i in range(num_classes):
+    for j in range(num_classes):
+        plt.text(j, i, f"{cm_norm[i, j]*100:.1f}%",
+                 ha='center', va='center',
+                 color="white" if cm_norm[i, j] > thr else "black")
+plt.xlabel("Predicted")
+plt.ylabel("True")
+plt.tight_layout()
+plt.savefig(os.path.join(OUTDIR, "confusion_matrix_normalized.png"), dpi=180)
+plt.show()
+
+# 2) ROC curves (OvR)
+try:
+    fig = plt.figure(figsize=(6,5))
+    for k, cname in enumerate(class_names):
+        fpr, tpr, _ = roc_curve(y_test_oh[:, k], y_proba_safe[:, k])
+        plt.plot(fpr, tpr, label=f"{cname}")
+    plt.plot([0,1],[0,1],'--')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("ROC Curves (One-vs-Rest)")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTDIR, "roc_ovr.png"), dpi=180)
+    plt.show()
+except Exception as e:
+    print("Skipping ROC curves:", e)
+
+# 3) Precision–Recall curves (OvR)
+try:
+    fig = plt.figure(figsize=(6,5))
+    for k, cname in enumerate(class_names):
+        p, r, _ = precision_recall_curve(y_test_oh[:, k], y_proba_safe[:, k])
+        plt.plot(r, p, label=f"{cname}")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Precision–Recall Curves (One-vs-Rest)")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTDIR, "pr_ovr.png"), dpi=180)
+    plt.show()
+except Exception as e:
+    print("Skipping PR curves:", e)
+
+# ===== Statistical tests =====
+
+# A) Bootstrap 95% CI for Accuracy and Macro-F1
+def bootstrap_ci(y_true_vec, y_pred_vec, B=1000, seed=1, metric="accuracy"):
+    rng = np.random.default_rng(seed)
+    n = len(y_true_vec)
+    vals = []
+    for _ in range(B):
+        idx = rng.integers(0, n, n)
+        if metric == "accuracy":
+            vals.append(accuracy_score(y_true_vec[idx], y_pred_vec[idx]))
+        elif metric == "macro_f1":
+            vals.append(precision_recall_fscore_support(
+                y_true_vec[idx], y_pred_vec[idx], average='macro', zero_division=0
+            )[2])
+        else:
+            raise ValueError("metric must be 'accuracy' or 'macro_f1'")
+    vals = np.array(vals)
+    return float(vals.mean()), float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))
+
+boot_acc_mean, boot_acc_lo, boot_acc_hi = bootstrap_ci(y_true, y_pred, B=1000, seed=1, metric="accuracy")
+boot_f1_mean,  boot_f1_lo,  boot_f1_hi  = bootstrap_ci(y_true, y_pred, B=1000, seed=1, metric="macro_f1")
+
+print("\n=== Bootstrap 95% CIs (1000 resamples) ===")
+print(f"Accuracy: mean={boot_acc_mean:.4f}, 95% CI=({boot_acc_lo:.4f}, {boot_acc_hi:.4f})")
+print(f"Macro-F1: mean={boot_f1_mean:.4f}, 95% CI=({boot_f1_lo:.4f}, {boot_f1_hi:.4f})")
+
+# ===== McNemar test vs Majority-class baseline (exact, log-space; version-safe) =====
+
+
+# Majority baseline = always predict the majority TRAIN class
+majority_label_name = y_train_5.value_counts().idxmax()
+majority_label_int  = le.transform([majority_label_name])[0]
+baseline_pred = np.full_like(y_true, fill_value=majority_label_int)
+
+# Discordant pairs
+model_correct    = (y_pred == y_true)
+baseline_correct = (baseline_pred == y_true)
+b = int((~model_correct &  baseline_correct).sum())  # model wrong, baseline right
+c = int(( model_correct & ~baseline_correct).sum())  # model right, baseline wrong
+n = b + c
+
+def mcnemar_exact_pvalue_logspace(b: int, c: int) -> float:
+    """
+    Exact two-sided McNemar p-value using Binomial(n=b+c, p=0.5),
+    computed in log-space to avoid overflow/underflow.
+    """
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+
+    # log PMF for Binom(n, 0.5): log C(n,i) - n*log(2)
+    # sum_{i=0..k} exp(log_pmf) with log-sum-exp trick
+    log_vals = []
+    ln2n = n * math.log(2.0)
+    ln_fact_n = math.lgamma(n + 1.0)
+    for i in range(k + 1):
+        log_pmf = ln_fact_n - math.lgamma(i + 1.0) - math.lgamma(n - i + 1.0) - ln2n
+        log_vals.append(log_pmf)
+
+    m = max(log_vals)
+    log_tail = m + math.log(sum(math.exp(v - m) for v in log_vals))
+    tail = math.exp(log_tail)
+
+    p_two_sided = min(1.0, 2.0 * tail)
+    return float(p_two_sided)
+
+pval = mcnemar_exact_pvalue_logspace(b, c)
+
+print("\n=== McNemar Test vs Majority Baseline ===")
+print(f"b (model wrong, baseline right) = {b}")
+print(f"c (model right, baseline wrong) = {c}")
+print(f"n = b + c                        = {n}")
+print(f"Two-sided exact p-value          = {pval:.6f}")
+
+# ===== Extra: latency & model size =====
+# Inference latency (per sample, ms)
+_ = model.predict(X_test_full[:64], verbose=0)  # warm-up
+t0 = time.perf_counter()
+_ = model.predict(X_test_full, verbose=0)
+t1 = time.perf_counter()
+avg_ms_per_sample = (t1 - t0) / len(X_test_full) * 1000.0
+
+# Parameter counts
+trainable_params = int(np.sum([np.prod(w.shape) for w in model.trainable_weights]))
+total_params     = int(model.count_params())
+
+extras = pd.DataFrame({
+    "metric": ["avg_inference_ms_per_sample", "trainable_params", "total_params"],
+    "value":  [avg_ms_per_sample, trainable_params, total_params]
+})
+print("\n=== Extra metrics ===")
+print(extras)
+
+# Save extras & done
+extras.to_csv(os.path.join(OUTDIR, "extra_metrics.csv"), index=False)
+print(f"\nAll evaluation artifacts saved to: {OUTDIR}")
+
