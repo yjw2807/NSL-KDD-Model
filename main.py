@@ -382,26 +382,3 @@ print(f"c (model right, baseline wrong) = {c}")
 print(f"n = b + c                        = {n}")
 print(f"Two-sided exact p-value          = {pval:.6f}")
 
-# ===== Extra: latency & model size =====
-# Inference latency (per sample, ms)
-_ = model.predict(X_test_full[:64], verbose=0)  # warm-up
-t0 = time.perf_counter()
-_ = model.predict(X_test_full, verbose=0)
-t1 = time.perf_counter()
-avg_ms_per_sample = (t1 - t0) / len(X_test_full) * 1000.0
-
-# Parameter counts
-trainable_params = int(np.sum([np.prod(w.shape) for w in model.trainable_weights]))
-total_params     = int(model.count_params())
-
-extras = pd.DataFrame({
-    "metric": ["avg_inference_ms_per_sample", "trainable_params", "total_params"],
-    "value":  [avg_ms_per_sample, trainable_params, total_params]
-})
-print("\n=== Extra metrics ===")
-print(extras)
-
-# Save extras & done
-extras.to_csv(os.path.join(OUTDIR, "extra_metrics.csv"), index=False)
-print(f"\nAll evaluation artifacts saved to: {OUTDIR}")
-
