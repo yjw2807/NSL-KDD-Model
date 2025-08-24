@@ -17,6 +17,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
 
 np.random.seed(42)
 
@@ -147,6 +148,25 @@ clean_train_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_train_preview
 clean_test_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_test_preview.csv"), index=False)
 print(f"Saved cleaned previews to: {OUTPUT_DIR}/cleaned_train_preview.csv and cleaned_test_preview.csv")
 
+# ------------------------------------------------------------------------------------
+# 4) Baseline Model
+# ------------------------------------------------------------------------------------
+
+rf = RandomForestClassifier(
+    n_estimators=800,
+    max_depth=20,
+    min_samples_split=5,
+    min_samples_leaf=5,
+    max_features="log2",
+    random_state=42
+)
+rf.fit(X_train, y_train)
+
+y_pred = rf.predict(X_test)
+
+print("Baseline Random Forest")
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))
 
 # ------------------------------------------------------------------------------------
 # 5) Model Training
