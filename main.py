@@ -71,7 +71,6 @@ def quick_null_report(df: pd.DataFrame, name: str):
 quick_null_report(df_train, "TRAIN (raw)")
 quick_null_report(df_test,  "TEST  (raw)")
 
-
 # ------------------------------------------------------------------------------------
 # 3) Pre-processing
 # ------------------------------------------------------------------------------------
