@@ -285,7 +285,7 @@ plateau = keras.callbacks.ReduceLROnPlateau(
 history = model.fit(
     X_tr, keras.utils.to_categorical(y_tr_int, num_classes),
     validation_data=(X_val, keras.utils.to_categorical(y_val_int, num_classes)),
-    epochs=80, batch_size=512, verbose=1,
+    epochs=10, batch_size=512, verbose=1,
     class_weight=class_weight_dict,
     callbacks=[early, plateau]
 )
