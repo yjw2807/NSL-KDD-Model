@@ -17,7 +17,6 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.ensemble import RandomForestClassifier
 
 np.random.seed(42)
 
@@ -47,10 +46,10 @@ FEAT41 = [
 
 def load_nsl_kdd(path_or_url: str) -> pd.DataFrame:
     df = pd.read_csv(path_or_url, header=None)
-    if df.shape[1] == len(FEAT41) + 2:
+    if df.shape[1] == len(FEAT41) + 2:      # 43 cols => label + difficulty
         df.columns = FEAT41 + ['labels', 'difficulty']
         df = df.drop(columns=['difficulty'])
-    elif df.shape[1] == len(FEAT41) + 1:
+    elif df.shape[1] == len(FEAT41) + 1:    # 42 cols => label only
         df.columns = FEAT41 + ['labels']
     else:
         raise ValueError(f"Unexpected column count: {df.shape[1]} (expected 42 or 43).")
@@ -129,27 +128,43 @@ if hasattr(X_train, "toarray"):
 try:
     cat_names = preprocess.named_transformers_['cat'].get_feature_names_out(cat_cols)
 except AttributeError:
-    # Very old sklearn
     cat_names = preprocess.named_transformers_['cat'].get_feature_names(cat_cols)
+
 feat_names = np.concatenate([cat_names, np.array(num_cols)])
 
 clean_train_df = pd.DataFrame(X_train, columns=feat_names)
-clean_test_df  = pd.DataFrame(X_test,  columns=feat_names)
+clean_test_df  = pd.DataFrame(X_test, columns=feat_names)
+
+#Apply SelectKBest AFTER preprocessing
+from sklearn.feature_selection import SelectKBest, f_classif
+
+k_best = 25
+selector = SelectKBest(score_func=f_classif, k=k_best)
+selector.fit(X_train, y_train)
+
+X_train_selected = selector.transform(X_train)
+X_test_selected  = selector.transform(X_test)
+
+selected_features = feat_names[selector.get_support()]
+print(f"Top {k_best} selected features:", selected_features)
+
+clean_train_df_selected = pd.DataFrame(X_train_selected, columns=selected_features)
+clean_test_df_selected  = pd.DataFrame(X_test_selected, columns=selected_features)
 
 #Show “after cleaning” results + save previews
-print("\n=== AFTER DATA CLEANING (ENCODE + SCALE) ===")
-print("Train (clean) shape:", clean_train_df.shape)
-print("Test  (clean) shape:", clean_test_df.shape)
-print("Sample columns:", list(clean_train_df.columns[:10]), "...")
-print("Train (clean) head():")
-print(clean_train_df.head(5))
+print("\n=== AFTER DATA CLEANING + FEATURE SELECTION ===")
+print("Train (selected) shape:", clean_train_df_selected.shape)
+print("Test  (selected) shape:", clean_test_df_selected.shape)
+print("Sample columns:", list(clean_train_df_selected.columns[:k_best]))
+print("Train (selected) head():")
+print(clean_train_df_selected.head(5))
 
-clean_train_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_train_preview.csv"), index=False)
-clean_test_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_test_preview.csv"), index=False)
-print(f"Saved cleaned previews to: {OUTPUT_DIR}/cleaned_train_preview.csv and cleaned_test_preview.csv")
+clean_train_df_selected.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_train_selected_preview.csv"), index=False)
+clean_test_df_selected.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_test_selected_preview.csv"), index=False)
+print(f"Saved cleaned + selected previews to: {OUTPUT_DIR}/cleaned_train_selected_preview.csv and cleaned_test_selected_preview.csv")
 
 # ------------------------------------------------------------------------------------
-# 4) Model Training
+# 5) Model Training
 # ------------------------------------------------------------------------------------
 
 import os, random, numpy as np, pandas as pd, warnings
@@ -164,7 +179,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report
 
 from tensorflow import keras
-from tensorflow.keras import layers
+from tensorflow.keras import layers, models, optimizers, utils, callbacks
 
 warnings.filterwarnings("ignore")
 
@@ -174,10 +189,11 @@ random.seed(1)
 np.random.seed(1)
 tf.random.set_seed(1)
 
+
 #Map raw labels to 5 superclasses (FIXED: add 'mailbomb' -> DoS)
 DOS = {
     'back','land','neptune','pod','smurf','teardrop',
-    'apache2','udpstorm','processtable','worm','mailbomb'
+    'apache2','udpstorm','processtable','worm','mailbomb'  # <-- added
 }
 PROBE = {
     'satan','ipsweep','nmap','portsweep','mscan','saint'
@@ -256,7 +272,7 @@ class_weights = compute_class_weight(class_weight='balanced', classes=classes, y
 class_weight_dict = {int(c): float(w) for c, w in zip(classes, class_weights)}
 print("Class weights:", class_weight_dict)
 
-#ANN (BN+Dropout), tuned for NSL-KDD tabular
+#Deep ANN (BN+Dropout), tuned for NSL-KDD tabular
 inp_dim = X_tr.shape[1]
 num_classes = y_train_oh.shape[1]
 
@@ -264,25 +280,25 @@ def build_improved_ann(input_dim, num_classes):
     inputs = layers.Input(shape=(input_dim,), name="features")
     
     #Layer 1
-    x = layers.Dense(512, kernel_initializer="he_normal")(inputs)
+    x = layers.Dense(1024, kernel_initializer="he_normal")(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.ReLU()(x)
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dropout(0.3)(x)   # slightly lower
     
     #Layer 2
-    x = layers.Dense(256, kernel_initializer="he_normal")(x)
+    x = layers.Dense(512, kernel_initializer="he_normal")(x)
     x = layers.BatchNormalization()(x)
     x = layers.ReLU()(x)
     x = layers.Dropout(0.25)(x)
     
     #Layer 3
-    x = layers.Dense(128, kernel_initializer="he_normal")(x)
+    x = layers.Dense(256, kernel_initializer="he_normal")(x)
     x = layers.BatchNormalization()(x)
     x = layers.ReLU()(x)
     x = layers.Dropout(0.2)(x)
     
     #Layer 4
-    x = layers.Dense(64, kernel_initializer="he_normal")(x)
+    x = layers.Dense(128, kernel_initializer="he_normal")(x)
     x = layers.BatchNormalization()(x)
     x = layers.ReLU()(x)
     x = layers.Dropout(0.15)(x)
@@ -308,14 +324,14 @@ reduce_lr = callbacks.ReduceLROnPlateau(
 )
 
 # ------------------------------------------------------------------------------------
-# 5) Train
+# 6) Train
 # ------------------------------------------------------------------------------------
 
 history = model.fit(
     X_tr, y_tr_oh,
     validation_data=(X_val, y_val_oh),
-    epochs=10,
-    batch_size=256,
+    epochs=10,            # longer training
+    batch_size=256,       # smaller batch
     class_weight=class_weight_dict,
     callbacks=[early_stop, reduce_lr],
     verbose=1
@@ -331,8 +347,6 @@ print("\nClassification Report:")
 print(classification_report(le.inverse_transform(y_test_int),
                             le.inverse_transform(y_pred),
                             digits=3, zero_division=0))
-
-
 
 # ------------------------------------------------------------------------------------
 # 6) Evaluation Metrics
