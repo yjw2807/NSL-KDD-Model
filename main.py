@@ -583,5 +583,5 @@ print(f"Two-sided exact p-value          = {pval:.6f}")
 
 
 print("=Model_params=")
- model.count_params()
+model.count_params()
 
