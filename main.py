@@ -670,3 +670,116 @@ print(f"Two-sided exact p-value          = {pval:.6f}")
 print("=Model_params=")
 model.count_params()
 
+# ------------------------------------------------------------------------------------
+# 10) GUI
+# ------------------------------------------------------------------------------------
+
+!pip -q install gradio pandas numpy scikit-learn
+
+import os, pandas as pd, numpy as np, gradio as gr
+
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+
+#Data sources
+#Feature names
+
+DOS = {'back','land','neptune','pod','smurf','teardrop','apache2','udpstorm','processtable','worm','mailbomb'}
+PROBE = {'satan','ipsweep','nmap','portsweep','mscan','saint'}
+R2L = {'guess_passwd','ftp_write','imap','phf','multihop','warezmaster','warezclient','spy',
+       'xlock','xsnoop','snmpguess','snmpgetattack','httptunnel','sendmail','named'}
+U2R = {'buffer_overflow','loadmodule','rootkit','perl','sqlattack','xterm','ps'}
+
+def to_5class(lbl: str)->str:
+    x = str(lbl).strip().lower()
+    if x=='normal': return 'Normal'
+    if x in DOS:   return 'DoS'
+    if x in PROBE: return 'Probe'
+    if x in R2L:   return 'R2L'
+    if x in U2R:   return 'U2R'
+    return 'Normal'  # safe fallback
+
+def load_nsl_kdd(path_or_url: str) -> pd.DataFrame:
+    df = pd.read_csv(path_or_url, header=None)
+    # 43 cols: 41 features + label + difficulty; 42 cols: 41 features + label
+    if df.shape[1] == len(FEAT41) + 2:
+        df.columns = FEAT41 + ['labels', 'difficulty']
+        df = df.drop(columns=['difficulty'])
+    else:
+        df.columns = FEAT41 + ['labels']
+    return df
+
+#Load data
+train_df = load_nsl_kdd(TRAIN_URL)
+test_df  = load_nsl_kdd(TEST_URL)
+
+y_train_5 = train_df['labels'].map(to_5class)
+y_test_5  = test_df['labels'].map(to_5class)
+X_train   = train_df[FEAT41]
+X_test    = test_df[FEAT41]
+
+cat_cols = ['protocol_type','service','flag']
+num_cols = [c for c in FEAT41 if c not in cat_cols]
+
+def make_ohe():
+    try:
+        return OneHotEncoder(handle_unknown='ignore', drop=None, sparse_output=False)
+    except TypeError:
+        return OneHotEncoder(handle_unknown='ignore', drop=None, sparse=False)
+
+preprocess = ColumnTransformer(
+    transformers=[
+        ('cat', make_ohe(), cat_cols),
+        ('num', Pipeline([('scale', StandardScaler())]), num_cols),
+    ],
+    remainder='drop'
+)
+
+#Fast baseline model (train in seconds)
+clf = Pipeline([
+    ('prep', preprocess),
+    ('clf', LogisticRegression(max_iter=200, n_jobs=-1, multi_class='multinomial'))
+])
+clf.fit(X_train, y_train_5)
+
+#Precompute test metrics for the Evaluation tab
+_test_pred  = clf.predict(X_test)
+_test_proba = clf.predict_proba(X_test)
+_test_acc   = accuracy_score(y_test_5, _test_pred)
+_test_report= classification_report(y_test_5, _test_pred, digits=3)
+CLASSES     = list(clf.classes_)
+_cm_labels  = ['DoS','Normal','Probe','R2L','U2R']  # fixed ordering for display
+_test_cm    = confusion_matrix(y_test_5, _test_pred, labels=_cm_labels)
+
+#GUI functions
+def predict_random(n_rows:int=5):
+    """Sample N random rows from test set and predict (shows true label, predicted, per-class probabilities)."""
+    n_rows = max(1, min(int(n_rows), 200))
+    samp = test_df.sample(n_rows, random_state=np.random.randint(0, 2**31-1))
+    probs = clf.predict_proba(samp[FEAT41])
+    preds = clf.predict(samp[FEAT41])
+
+    out = pd.DataFrame({
+        'true_label': y_test_5.loc[samp.index].values,
+        'predicted': preds
+    })
+    #add probability columns in clf.classes_ order
+    for i, cname in enumerate(CLASSES):
+        out[f'prob_{cname}'] = probs[:, i]
+    return out.reset_index(drop=True)
+
+#Build Gradio UI
+with gr.Blocks(title="NSL-KDD 5-class — GUI Assignment") as demo:
+    gr.Markdown("## NSL-KDD Intrusion Detection — GUI Assignment\n"
+                "- DLI Group Assignment")
+
+    with gr.Tab("Random Samples"):
+        n_rows = gr.Slider(1, 200, value=5, step=1, label="Number of random rows from KDDTest+")
+        btn1   = gr.Button("Predict Sample")
+        out1   = gr.Dataframe(label="Predictions")
+        btn1.click(fn=predict_random, inputs=n_rows, outputs=out1)
+
+demo.launch(share=True)
