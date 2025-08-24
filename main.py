@@ -173,12 +173,7 @@ print(classification_report(y_test, y_pred))
 # ------------------------------------------------------------------------------------
 
 import os, random, numpy as np, pandas as pd, warnings
-warnings.filterwarnings("ignore")
-
-# Reproducibility
-os.environ["PYTHONHASHSEED"] = "1"
-random.seed(1)
-np.random.seed(1)
+import tensorflow as tf
 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -188,15 +183,21 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report
 
-import tensorflow as tf
-tf.random.set_seed(1)
 from tensorflow import keras
 from tensorflow.keras import layers
 
-# ---------- 1) Map raw labels to 5 superclasses (FIXED: add 'mailbomb' -> DoS) ----------
+warnings.filterwarnings("ignore")
+
+#Reproducibility
+os.environ["PYTHONHASHSEED"] = "1"
+random.seed(1)
+np.random.seed(1)
+tf.random.set_seed(1)
+
+#Map raw labels to 5 superclasses (FIXED: add 'mailbomb' -> DoS)
 DOS = {
     'back','land','neptune','pod','smurf','teardrop',
-    'apache2','udpstorm','processtable','worm','mailbomb'  # <-- added
+    'apache2','udpstorm','processtable','worm','mailbomb'
 }
 PROBE = {
     'satan','ipsweep','nmap','portsweep','mscan','saint'
@@ -227,7 +228,7 @@ print("5-class distribution (train):"); print(y_train_5.value_counts())
 print("\n5-class distribution (test):"); print(y_test_5.value_counts())
 assert not unk_train and not unk_test, f"Unknown labels remain: train={unk_train}, test={unk_test}. Add them to DOS/PROBE/R2L/U2R."
 
-# ---------- 2) Rebuild features with FULL one-hot (no drop) ----------
+#Rebuild features with FULL one-hot (no drop) for deep learning
 def make_ohe_full():
     try:
         return OneHotEncoder(handle_unknown='ignore', drop=None, sparse_output=False)
@@ -253,7 +254,7 @@ if hasattr(X_train_full, "toarray"):
 
 print("\nFeature dims:", X_train_full.shape, "->", X_test_full.shape)
 
-# ---------- 3) Encode labels to ints / one-hot ----------
+#Encode labels to ints / one-hot
 le = LabelEncoder()
 y_train_int = le.fit_transform(y_train_5)
 y_test_int  = le.transform(y_test_5)
@@ -262,20 +263,20 @@ y_train_oh = keras.utils.to_categorical(y_train_int, num_classes=num_classes)
 y_test_oh  = keras.utils.to_categorical(y_test_int,  num_classes=num_classes)
 print("Classes:", list(le.classes_))
 
-# ---------- 4) Stratified validation split ----------
+#Stratified validation split
 X_tr, X_val, y_tr_int, y_val_int = train_test_split(
     X_train_full, y_train_int, test_size=0.15, stratify=y_train_int, random_state=1
 )
 y_tr_oh  = keras.utils.to_categorical(y_tr_int,  num_classes)
 y_val_oh = keras.utils.to_categorical(y_val_int, num_classes)
 
-# ---------- 5) Class weights ----------
+#Class weights
 classes = np.unique(y_tr_int)
 class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=y_tr_int)
 class_weight_dict = {int(c): float(w) for c, w in zip(classes, class_weights)}
 print("Class weights:", class_weight_dict)
 
-# ---------- 6) Deep MLP (BN+Dropout), tuned for NSL-KDD tabular ----------
+#Deep MLP (BN+Dropout), tuned for NSL-KDD tabular
 inp_dim = X_tr.shape[1]
 
 def build_mlp(input_dim, num_classes):
