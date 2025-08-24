@@ -149,27 +149,7 @@ clean_test_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_test_preview.c
 print(f"Saved cleaned previews to: {OUTPUT_DIR}/cleaned_train_preview.csv and cleaned_test_preview.csv")
 
 # ------------------------------------------------------------------------------------
-# 4) Baseline Model
-# ------------------------------------------------------------------------------------
-
-rf = RandomForestClassifier(
-    n_estimators=800,
-    max_depth=20,
-    min_samples_split=5,
-    min_samples_leaf=5,
-    max_features="log2",
-    random_state=42
-)
-rf.fit(X_train, y_train)
-
-y_pred = rf.predict(X_test)
-
-print("Baseline Random Forest")
-print("Accuracy:", accuracy_score(y_test, y_pred))
-print(classification_report(y_test, y_pred))
-
-# ------------------------------------------------------------------------------------
-# 5) Model Training
+# 4) Model Training
 # ------------------------------------------------------------------------------------
 
 import os, random, numpy as np, pandas as pd, warnings
@@ -328,7 +308,7 @@ reduce_lr = callbacks.ReduceLROnPlateau(
 )
 
 # ------------------------------------------------------------------------------------
-# 6) Train
+# 5) Train
 # ------------------------------------------------------------------------------------
 
 history = model.fit(
@@ -355,7 +335,7 @@ print(classification_report(le.inverse_transform(y_test_int),
 
 
 # ------------------------------------------------------------------------------------
-# 7) Evaluation Metrics
+# 6) Evaluation Metrics
 # ------------------------------------------------------------------------------------
 
 import os, time, numpy as np, pandas as pd, warnings
