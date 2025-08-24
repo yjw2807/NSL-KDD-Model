@@ -29,6 +29,7 @@ TEST_URL  = "https://raw.githubusercontent.com/yjw2807/NSL-KDD-Model/main/KDDTes
 OUTPUT_DIR = "./nslkdd_outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+#Column Names
 FEAT41 = [
     'duration','protocol_type','service','flag','src_bytes','dst_bytes','land','wrong_fragment','urgent','hot',
     'num_failed_logins','logged_in','num_compromised','root_shell','su_attempted','num_root','num_file_creations',
@@ -81,6 +82,16 @@ y_test  = df_test['labels']
 
 cat_cols = ['protocol_type', 'service', 'flag']
 
+#Drop columns with only 1 unique value and update categorical and numerical columns
+single_value_cols = [col for col in X_train_df.columns if X_train_df[col].nunique() == 1]
+print("Columns with only 1 unique value (will be dropped):", single_value_cols)
+
+X_train_df = X_train_df.drop(columns=single_value_cols)
+X_test_df  = X_test_df.drop(columns=single_value_cols)
+
+cat_cols = [c for c in cat_cols if c in X_train_df.columns]
+num_cols = [c for c in X_train_df.columns if c not in cat_cols]
+
 #Version-safe OneHotEncoder
 def make_ohe():
     #Newer sklearn (>=1.4): use sparse_output
@@ -113,7 +124,7 @@ if hasattr(X_train, "toarray"):
     X_train = X_train.toarray()
     X_test  = X_test.toarray()
 
-# Build cleaned DataFrame previews
+#Build cleaned DataFrame previews
 try:
     cat_names = preprocess.named_transformers_['cat'].get_feature_names_out(cat_cols)
 except AttributeError:
