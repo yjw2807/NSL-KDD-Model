@@ -354,7 +354,10 @@ print(classification_report(le.inverse_transform(y_test_int),
 
 
 
-#---------------- Evaluation Metrics-----------------
+# ------------------------------------------------------------------------------------
+# 7) Evaluation Metrics
+# ------------------------------------------------------------------------------------
+
 import os, time, numpy as np, pandas as pd, warnings
 import matplotlib.pyplot as plt
 import numpy as np, math
