@@ -1,4 +1,9 @@
-#Everyone write a comment to make sure can access edit this thing
+#Google Colab Link:
+#GUI Link:
+
+# ------------------------------------------------------------------------------------
+# 0) Libraries & Tools
+# ------------------------------------------------------------------------------------
 
 import os
 import numpy as np
@@ -15,9 +20,10 @@ from sklearn.metrics import classification_report, confusion_matrix
 
 np.random.seed(42)
 
-# ----------------------------
-# 0) Config
-# ----------------------------
+# ------------------------------------------------------------------------------------
+# 1) Setup
+# ------------------------------------------------------------------------------------
+
 TRAIN_URL = "https://raw.githubusercontent.com/yjw2807/NSL-KDD-Model/main/KDDTrain+.txt"
 TEST_URL  = "https://raw.githubusercontent.com/yjw2807/NSL-KDD-Model/main/KDDTest+.txt"
 OUTPUT_DIR = "./nslkdd_outputs"
@@ -33,12 +39,16 @@ FEAT41 = [
     'dst_host_rerror_rate','dst_host_srv_rerror_rate'
 ]
 
+# ------------------------------------------------------------------------------------
+# 2) Data Loading
+# ------------------------------------------------------------------------------------
+
 def load_nsl_kdd(path_or_url: str) -> pd.DataFrame:
     df = pd.read_csv(path_or_url, header=None)
-    if df.shape[1] == len(FEAT41) + 2:      # 43 cols => label + difficulty
+    if df.shape[1] == len(FEAT41) + 2:
         df.columns = FEAT41 + ['labels', 'difficulty']
         df = df.drop(columns=['difficulty'])
-    elif df.shape[1] == len(FEAT41) + 1:    # 42 cols => label only
+    elif df.shape[1] == len(FEAT41) + 1:
         df.columns = FEAT41 + ['labels']
     else:
         raise ValueError(f"Unexpected column count: {df.shape[1]} (expected 42 or 43).")
@@ -51,9 +61,7 @@ df_test  = load_nsl_kdd(TEST_URL)
 print(f"Train shape (raw): {df_train.shape}")
 print(f"Test  shape (raw): {df_test.shape}")
 
-# ----------------------------
-# 1) Quick null report (before cleaning)
-# ----------------------------
+#Quick null report (before cleaning)
 def quick_null_report(df: pd.DataFrame, name: str):
     nulls = df.isna().sum().sum()
     print(f"[{name}] total NaNs: {nulls}")
@@ -61,26 +69,25 @@ def quick_null_report(df: pd.DataFrame, name: str):
 quick_null_report(df_train, "TRAIN (raw)")
 quick_null_report(df_test,  "TEST  (raw)")
 
-# ----------------------------
-# 2) Split features/labels
-# ----------------------------
+# ------------------------------------------------------------------------------------
+# 3) Pre-processing
+# ------------------------------------------------------------------------------------
+
+#Split features/labels
 X_train_df = df_train.drop(columns=['labels'])
 y_train = df_train['labels']
 X_test_df  = df_test.drop(columns=['labels'])
 y_test  = df_test['labels']
 
 cat_cols = ['protocol_type', 'service', 'flag']
-num_cols = [c for c in X_train_df.columns if c not in cat_cols]
 
-# ----------------------------
-# 3) Version-safe OneHotEncoder
-# ----------------------------
+#Version-safe OneHotEncoder
 def make_ohe():
-    # Newer sklearn (>=1.4): use sparse_output
+    #Newer sklearn (>=1.4): use sparse_output
     try:
         return OneHotEncoder(handle_unknown='ignore', drop='first', sparse_output=False)
     except TypeError:
-        # Older sklearn (<1.4): fall back to 'sparse'
+        #Older sklearn (<1.4): fall back to 'sparse'
         return OneHotEncoder(handle_unknown='ignore', drop='first', sparse=False)
 
 ohe = make_ohe()
@@ -96,14 +103,12 @@ preprocess = ColumnTransformer(
     remainder='drop'
 )
 
-# ----------------------------
-# 4) Fit preprocessing (TRAIN only) and transform both
-# ----------------------------
+#Fit preprocessing and transform both
 print(">>> Fitting preprocessing on TRAIN and transforming TRAIN/TEST ...")
 X_train = preprocess.fit_transform(X_train_df)
 X_test  = preprocess.transform(X_test_df)
 
-# Ensure dense (in case an older version returned sparse)
+#Ensure dense (in case an older version returned sparse)
 if hasattr(X_train, "toarray"):
     X_train = X_train.toarray()
     X_test  = X_test.toarray()
@@ -119,9 +124,7 @@ feat_names = np.concatenate([cat_names, np.array(num_cols)])
 clean_train_df = pd.DataFrame(X_train, columns=feat_names)
 clean_test_df  = pd.DataFrame(X_test,  columns=feat_names)
 
-# ----------------------------
-# 5) Show “after cleaning” results + save previews
-# ----------------------------
+#Show “after cleaning” results + save previews
 print("\n=== AFTER DATA CLEANING (ENCODE + SCALE) ===")
 print("Train (clean) shape:", clean_train_df.shape)
 print("Test  (clean) shape:", clean_test_df.shape)
@@ -134,7 +137,10 @@ clean_test_df.head(2000).to_csv(os.path.join(OUTPUT_DIR, "cleaned_test_preview.c
 print(f"Saved cleaned previews to: {OUTPUT_DIR}/cleaned_train_preview.csv and cleaned_test_preview.csv")
 
 
-#------------MODEL TRAINING-------------------
+# ------------------------------------------------------------------------------------
+# 5) Model Training
+# ------------------------------------------------------------------------------------
+
 import os, random, numpy as np, pandas as pd, warnings
 warnings.filterwarnings("ignore")
 
