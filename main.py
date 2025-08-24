@@ -276,61 +276,74 @@ class_weights = compute_class_weight(class_weight='balanced', classes=classes, y
 class_weight_dict = {int(c): float(w) for c, w in zip(classes, class_weights)}
 print("Class weights:", class_weight_dict)
 
-#Deep MLP (BN+Dropout), tuned for NSL-KDD tabular
+#ANN (BN+Dropout), tuned for NSL-KDD tabular
 inp_dim = X_tr.shape[1]
+num_classes = y_train_oh.shape[1]
 
-def build_mlp(input_dim, num_classes):
-    inputs = keras.Input(shape=(input_dim,), name="features")
-
-    x = layers.Dense(1024, kernel_initializer="he_normal")(inputs)
+def build_improved_ann(input_dim, num_classes):
+    inputs = layers.Input(shape=(input_dim,), name="features")
+    
+    #Layer 1
+    x = layers.Dense(512, kernel_initializer="he_normal")(inputs)
     x = layers.BatchNormalization()(x)
-    x = layers.Activation("relu")(x)
-    x = layers.Dropout(0.5)(x)
-
-    x = layers.Dense(512, kernel_initializer="he_normal")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation("relu")(x)
-    x = layers.Dropout(0.4)(x)
-
+    x = layers.ReLU()(x)
+    x = layers.Dropout(0.3)(x)
+    
+    #Layer 2
     x = layers.Dense(256, kernel_initializer="he_normal")(x)
     x = layers.BatchNormalization()(x)
-    x = layers.Activation("relu")(x)
-    x = layers.Dropout(0.35)(x)
-
+    x = layers.ReLU()(x)
+    x = layers.Dropout(0.25)(x)
+    
+    #Layer 3
     x = layers.Dense(128, kernel_initializer="he_normal")(x)
     x = layers.BatchNormalization()(x)
-    x = layers.Activation("relu")(x)
-    x = layers.Dropout(0.30)(x)
+    x = layers.ReLU()(x)
+    x = layers.Dropout(0.2)(x)
+    
+    #Layer 4
+    x = layers.Dense(64, kernel_initializer="he_normal")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.ReLU()(x)
+    x = layers.Dropout(0.15)(x)
 
+    #Output layer
     outputs = layers.Dense(num_classes, activation="softmax")(x)
-    model = keras.Model(inputs, outputs, name="DeepMLP_NSLKDD_5Class")
-    opt = keras.optimizers.Adam(learning_rate=1e-3)
-    model.compile(optimizer=opt, loss="categorical_crossentropy", metrics=["accuracy"])
+    
+    model = keras.Model(inputs, outputs, name="Improved_ANN_NSLKDD")
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001),
+                  loss="categorical_crossentropy",
+                  metrics=["accuracy"])
     return model
 
-model = build_mlp(inp_dim, num_classes)
+model = build_improved_ann(inp_dim, num_classes)
 model.summary()
 
-# ---------- 7) Callbacks ----------
-early = keras.callbacks.EarlyStopping(
-    monitor="val_accuracy", patience=12, restore_best_weights=True, verbose=1
+#Callbacks
+early_stop = callbacks.EarlyStopping(
+    monitor="val_accuracy", patience=15, restore_best_weights=True, verbose=1
 )
-plateau = keras.callbacks.ReduceLROnPlateau(
-    monitor="val_accuracy", factor=0.5, patience=6, min_lr=1e-5, verbose=1
+reduce_lr = callbacks.ReduceLROnPlateau(
+    monitor="val_accuracy", factor=0.5, patience=7, min_lr=1e-5, verbose=1
 )
 
-# ---------- 8) Train ----------
+# ------------------------------------------------------------------------------------
+# 6) Train
+# ------------------------------------------------------------------------------------
+
 history = model.fit(
-    X_tr, keras.utils.to_categorical(y_tr_int, num_classes),
-    validation_data=(X_val, keras.utils.to_categorical(y_val_int, num_classes)),
-    epochs=10, batch_size=512, verbose=1,
+    X_tr, y_tr_oh,
+    validation_data=(X_val, y_val_oh),
+    epochs=10,
+    batch_size=256,
     class_weight=class_weight_dict,
-    callbacks=[early, plateau]
+    callbacks=[early_stop, reduce_lr],
+    verbose=1
 )
 
-# ---------- 9) Evaluate on official KDDTest+ ----------
+#Evaluate on official KDDTest+
 test_loss, test_acc = model.evaluate(X_test_full, y_test_oh, verbose=0)
-print(f"\n=== TEST RESULTS (KDDTest+; 5-class) ===")
+print(f"\n=== TEST RESULTS (Improved ANN 5-class) ===")
 print(f"Accuracy: {test_acc*100:.2f}%")
 
 y_pred = np.argmax(model.predict(X_test_full, verbose=0), axis=1)
