@@ -349,7 +349,41 @@ print(classification_report(le.inverse_transform(y_test_int),
                             digits=3, zero_division=0))
 
 # ------------------------------------------------------------------------------------
-# 6) Evaluation Metrics
+# 7) Save Model
+# ------------------------------------------------------------------------------------
+
+import os, joblib, numpy as np
+
+from pathlib import Path
+from google.colab import files
+
+ART_DIR = Path("nslkdd_artifacts")
+ART_DIR.mkdir(exist_ok=True)
+
+bundle = {
+    "model_type": "keras_json+weights",
+    "model_json": model.to_json(),
+    "weights": model.get_weights(),
+    "preprocess": preprocess_full,
+    "label_encoder": le,
+    "classes": getattr(le, "classes_", None),
+    "meta": {
+        "cat_cols": cat_cols,
+        "num_cols": num_cols,
+        "framework": "tensorflow-keras",
+        "task": "NSL-KDD 5-class",
+    },
+}
+
+out_path = ART_DIR / "nslkdd_mlp_5class_bundle.pkl"
+joblib.dump(bundle, out_path)
+print("Saved:", out_path)
+
+#Download the .pkl to your local machine
+files.download(str(out_path))
+
+# ------------------------------------------------------------------------------------
+# 9) Evaluation Metrics
 # ------------------------------------------------------------------------------------
 
 import os, time, numpy as np, pandas as pd, warnings
