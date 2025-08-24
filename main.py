@@ -383,6 +383,44 @@ print("Saved:", out_path)
 files.download(str(out_path))
 
 # ------------------------------------------------------------------------------------
+# 8) Save Model (Google Drive)
+# ------------------------------------------------------------------------------------
+
+import os, joblib, numpy as np
+
+from pathlib import Path
+from google.colab import drive
+
+#Mount Google Drive
+drive.mount('/content/drive')
+
+#Choose a folder in Drive
+SAVE_DIR = Path('/content/drive/MyDrive/NSL-KDD') 
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
+
+#Build a single-file bundle for easy reload later
+bundle = {
+    "model_type": "keras_json+weights",
+    "model_json": model.to_json(),     
+    "weights": model.get_weights(),   
+    "preprocess": preprocess_full,     
+    "label_encoder": le,     
+    "classes": getattr(le, "classes_", None),
+    "meta": {
+        "cat_cols": cat_cols,
+        "num_cols": num_cols,
+        "framework": "tensorflow-keras",
+        "task": "NSL-KDD 5-class"
+    },
+}
+
+OUT_PATH = SAVE_DIR / "nslkdd_mlp_5class_bundle.pkl"
+joblib.dump(bundle, OUT_PATH)
+
+print(f"Saved bundle to: {OUT_PATH}")
+print(f"File size: {os.path.getsize(OUT_PATH)/1_048_576:.2f} MB")
+
+# ------------------------------------------------------------------------------------
 # 9) Evaluation Metrics
 # ------------------------------------------------------------------------------------
 
