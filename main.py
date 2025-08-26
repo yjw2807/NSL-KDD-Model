@@ -189,10 +189,10 @@ np.random.seed(1)
 tf.random.set_seed(1)
 
 
-#Map raw labels to 5 superclasses (FIXED: add 'mailbomb' -> DoS)
+#Map raw labels to 5 superclasses 
 DOS = {
     'back','land','neptune','pod','smurf','teardrop',
-    'apache2','udpstorm','processtable','worm','mailbomb'  # <-- added
+    'apache2','udpstorm','processtable','worm','mailbomb'
 }
 PROBE = {
     'satan','ipsweep','nmap','portsweep','mscan','saint'
